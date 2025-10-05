@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8">
+  <title>Quem é o Impostor?</title>
+  <style>
+    body { font-family: Arial, sans-serif; text-align: center; background-color: #0d1117; color: #fff; }
+    h1 { color: #ff4757; }
+    input, textarea { padding: 10px; margin: 5px; border-radius: 5px; border: none; width: 80%; max-width: 400px; font-size: 16px; }
+    button { padding: 10px 20px; margin: 10px; border: none; border-radius: 8px; font-size: 16px; cursor: pointer; background-color: #3498db; color: white; transition: transform 0.2s; }
+    button:hover { transform: scale(1.05); }
+    .oculto { display: none; }
+    .resposta-card { background-color: #1e2329; padding: 10px; margin: 10px auto; width: 80%; border-radius: 10px; }
+    .resultado { font-size: 20px; font-weight: bold; margin-top: 20px; color: #00ffcc; }
+  </style>
+
+  <!-- Firebase -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+
+  <script>
+    // Configuração do Firebase
+    const firebaseConfig = {
+      apiKey: "COLE_AQUI_SUA_APIKEY",
+      authDomain: "joguinho-ad21e.firebaseapp.com",
+      databaseURL: "https://joguinho-ad21e-default-rtdb.firebaseio.com",
+      projectId: "joguinho-ad21e",
+      storageBucket: "joguinho-ad21e.appspot.com",
+      messagingSenderId: "COLE_AQUI",
+      appId: "COLE_AQUI"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const database = firebase.database();
+  </script>
+</head>
+<body>
+
+<h1>Quem é o Impostor?</h1>
+
+<!-- Login -->
+<div id="loginDiv">
+  <p>Digite seu nome:</p>
+  <input type="text" id="nomeJogador" placeholder="Ex: João">
+  <br>
+  <button onclick="entrarJogo()">Entrar</button>
+</div>
+
+<!-- Perguntas -->
+<div id="etapaPergunta" class="oculto">
+  <h2>Digite sua pergunta e resposta:</h2>
+  <input type="text" id="pergunta" placeholder="Pergunta">
+  <br>
+  <textarea id="resposta" placeholder="Resposta"></textarea>
+  <br>
+  <button onclick="enviarPergunta()">Enviar</button>
+</div>
+
+<!-- Round -->
+<div id="etapaRound" class="oculto">
+  <h2 id="roundTitulo"></h2>
+  <div id="conteudoRound"></div>
+</div>
+
+<!-- Votação -->
+<div id="etapaVotacao" class="oculto">
+  <h2>Quem é o impostor?</h2>
+  <div id="botoesVotacao"></div>
+</div>
+
+<!-- Resultado -->
+<div id="etapaResultado" class="oculto">
+  <div id="resultado" class="resultado"></div>
+  <button onclick="proximoRound()">Próximo Round</button>
+</div>
+
+<script>
+  let nomeJogador = "";
+  let totalJogadores = 0;
+  let perguntas = [];
+  let perguntasNaoUsadas = [];
+  let roundAtual = 0;
+  let respostasRound = [];
+  let votos = {};
+
+  // Entrar no jogo e salvar jogador no Firebase
+  function entrarJogo() {
+    nomeJogador = document.getElementById("nomeJogador").value.trim();
+    if (!nomeJogador) { alert("Digite um nome!"); return; }
+
+    const jogadorRef = database.ref('jogadores/' + nomeJogador);
+    jogadorRef.set({ nome: nomeJogador });
+    
+    // Escuta alterações de jogadores
+    database.ref('jogadores').on('value', snapshot => {
+      const data = snapshot.val() || {};
+      totalJogadores = Object.keys(data).length;
+    });
+
+    document.getElementById("loginDiv").classList.add("oculto");
+    document.getElementById("etapaPergunta").classList.remove("oculto");
+  }
+
+  // Enviar pergunta e resposta para Firebase
+  function enviarPergunta() {
+    const pergunta = document.getElementById("pergunta").value.trim();
+    const resposta = document.getElementById("resposta").value.trim();
+    if (!pergunta || !resposta) { alert("Preencha pergunta e resposta!"); return; }
+
+    database.ref('perguntas/' + nomeJogador).set({ pergunta: pergunta, resposta: resposta });
+
+    document.getElementById("pergunta").value = "";
+    document.getElementById("resposta").value = "";
+    document.getElementById("etapaPergunta").classList.add("oculto");
+
+    // Espera todos enviarem perguntas
+    database.ref('perguntas').on('value', snapshot => {
+      perguntas = snapshot.val() || {};
+      if (Object.keys(perguntas).length === totalJogadores && perguntasNaoUsadas.length === 0) {
+        perguntasNaoUsadas = Object.keys(perguntas);
+        iniciarRound();
+      }
+    });
+  }
+
+  function iniciarRound() {
+    if (perguntasNaoUsadas.length === 0) {
+      alert("🎉 Todos os rounds terminaram!");
+      return novoJogo();
+    }
+
+    roundAtual++;
+    const indice = Math.floor(Math.random() * perguntasNaoUsadas.length);
+    const jogadorPergunta = perguntasNaoUsadas.splice(indice, 1)[0];
+    const perguntaDaVez = perguntas[jogadorPergunta].pergunta;
+
+    document.getElementById("roundTitulo").textContent = `Round ${roundAtual} - Pergunta de ${jogadorPergunta}`;
+    const conteudo = document.getElementById("conteudoRound");
+    conteudo.innerHTML = `
+      <p>Pergunta: ${perguntaDaVez}</p>
+      <textarea id="respostaRound" placeholder="Digite sua resposta"></textarea><br>
+      <button onclick="enviarRespostaFirebase('${jogadorPergunta}')">Enviar resposta</button>
+    `;
+    document.getElementById("etapaRound").classList.remove("oculto");
+    respostasRound = [];
+  }
+
+  function enviarRespostaFirebase(jogadorPergunta) {
+    const resposta = document.getElementById("respostaRound").value.trim();
+    if (!resposta) { alert("Digite sua resposta!"); return; }
+
+    // Salva resposta do jogador para este round
+    database.ref(`respostas/round${roundAtual}/${nomeJogador}`).set(resposta);
+
+    document.getElementById("respostaRound").value = "";
+
+    // Escuta respostas de todos jogadores
+    database.ref(`respostas/round${roundAtual}`).on('value', snapshot => {
+      respostasRound = snapshot.val() || {};
+      if (Object.keys(respostasRound).length === totalJogadores) {
+        mostrarVotacao(jogadorPergunta);
+      }
+    });
+  }
+
+  function mostrarVotacao(jogadorPergunta) {
+    document.getElementById("etapaRound").classList.add("oculto");
+    document.getElementById("etapaVotacao").classList.remove("oculto");
+
+    const container = document.getElementById("botoesVotacao");
+    container.innerHTML = `<h3>Pergunta: ${perguntas[jogadorPergunta].pergunta}</h3>`;
+
+    // Embaralha respostas
+    const respostas = Object.values(respostasRound)
+      .map(r => ({ r, sort: Math.random() }))
+      .sort((a,b) => a.sort-b.sort)
+      .map(a => a.r);
+
+    respostas.forEach(r => {
+      const div = document.createElement("div");
+      div.classList.add("resposta-card");
+      div.textContent = "💬 " + r;
+      container.appendChild(div);
+    });
+
+    // Botões de votação
+    votos = {};
+    Object.keys(perguntas).forEach(j => { votos[j] = 0; });
+    Object.keys(perguntas).forEach(j => {
+      const btn = document.createElement("button");
+      btn.textContent = `Votar no ${j}`;
+      btn.onclick = () => votarFirebase(j);
+      container.appendChild(btn);
+    });
+  }
+
+  function votarFirebase(jogador) {
+    database.ref(`votos/round${roundAtual}/${jogador}`).transaction(v => (v || 0) + 1);
+
+    // Escuta votos em tempo real
+    database.ref(`votos/round${roundAtual}`).on('value', snapshot => {
+      votos = snapshot.val() || {};
+      if (Object.keys(votos).length === Object.keys(perguntas).length) {
+        mostrarResultado();
+      }
+    });
+  }
+
+  function mostrarResultado() {
+    document.getElementById("etapaVotacao").classList.add("oculto");
+    document.getElementById("etapaResultado").classList.remove("oculto");
+
+    const maiorVoto = Math.max(...Object.values(votos));
+    const impostores = Object.keys(votos).filter(j => votos[j] === maiorVoto);
+    const resultadoDiv = document.getElementById("resultado");
+
+    if (maiorVoto === 0) {
+      resultadoDiv.textContent = "Ninguém votou ainda!";
+    } else if (impostores.length === 1) {
+      resultadoDiv.textContent = `🕵️‍♂️ O impostor é ${impostores[0]}! (${maiorVoto} voto${maiorVoto>1?"s":""})`;
+    } else {
+      resultadoDiv.textContent = `Empate entre: ${impostores.join(", ")}`;
+    }
+  }
+
+  function proximoRound() {
+    document.getElementById("etapaResultado").classList.add("oculto");
+    iniciarRound();
+  }
+
+  function novoJogo() {
+    location.reload(); // reinicia o jogo para todos
+  }
+</script>
+
+</body>
+</html>
