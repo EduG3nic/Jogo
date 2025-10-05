@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8">
+  <title>Quem é o Impostor?</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      background-color: #0d1117;
+      color: #fff;
+    }
+    h1 { color: #ff4757; }
+    input, textarea {
+      padding: 10px;
+      margin: 5px;
+      border-radius: 5px;
+      border: none;
+      width: 80%;
+      max-width: 400px;
+      font-size: 16px;
+    }
+    button {
+      padding: 10px 20px;
+      margin: 10px;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      cursor: pointer;
+      background-color: #3498db;
+      color: white;
+      transition: transform 0.2s;
+    }
+    button:hover { transform: scale(1.05); }
+    .oculto { display: none; }
+    .resposta-card {
+      background-color: #1e2329;
+      padding: 10px;
+      margin: 10px auto;
+      width: 80%;
+      border-radius: 10px;
+    }
+    .resultado {
+      font-size: 20px;
+      font-weight: bold;
+      margin-top: 20px;
+      color: #00ffcc;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Quem é o Impostor?</h1>
+
+  <!-- Etapa 1: Entrada do jogador -->
+  <div id="etapa1">
+    <p>Digite seu nome:</p>
+    <input type="text" id="nomeJogador" placeholder="Seu nome">
+    <br>
+    <button onclick="entrarJogo()">Entrar</button>
+  </div>
+
+  <!-- Etapa 2: Pergunta e resposta -->
+  <div id="etapa2" class="oculto">
+    <h2>Digite sua pergunta e resposta</h2>
+    <input type="text" id="pergunta" placeholder="Digite sua pergunta">
+    <br>
+    <textarea id="resposta" placeholder="Digite sua resposta"></textarea>
+    <br>
+    <button onclick="enviarPerguntaResposta()">Enviar</button>
+  </div>
+
+  <!-- Etapa 3: Round -->
+  <div id="etapa3" class="oculto">
+    <h2 id="roundTitulo">Round</h2>
+    <div id="conteudoRound"></div>
+  </div>
+
+  <!-- Etapa 4: Votação -->
+  <div id="etapa4" class="oculto">
+    <h2>Quem é o impostor?</h2>
+    <div id="botoesVotacao"></div>
+  </div>
+
+  <!-- Etapa 5: Resultado -->
+  <div id="etapa5" class="oculto">
+    <div id="resultado" class="resultado"></div>
+    <button onclick="proximoRound()">Próximo Round</button>
+  </div>
+
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
+
+  <script>
+    // Config Firebase
+    const firebaseConfig = {
+      databaseURL: "https://joguinho-ad21e-default-rtdb.firebaseio.com"
+    };
+    const app = firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    let nomeJogador = "";
+    let totalJogadores = 0;
+    let jogadorId = "";
+    let perguntasNaoUsadas = [];
+    let roundAtual = 0;
+    let coresDisponiveis = ["#3498db","#e74c3c","#2ecc71","#f1c40f","#9b59b6","#1abc9c","#e67e22","#95a5a6"];
+    let coresJogadores = {};
+
+    function entrarJogo() {
+      nomeJogador = document.getElementById("nomeJogador").value.trim();
+      if (!nomeJogador) { alert("Digite seu nome"); return; }
+
+      // Criar ID único
+      jogadorId = 'jogador_' + Date.now() + Math.floor(Math.random()*1000);
+
+      // Salvar jogador no Firebase
+      db.ref('jogadores/' + jogadorId).set({ nome: nomeJogador });
+
+      document.getElementById("etapa1").classList.add("oculto");
+      document.getElementById("etapa2").classList.remove("oculto");
+    }
+
+    function enviarPerguntaResposta() {
+      const pergunta = document.getElementById("pergunta").value.trim();
+      const resposta = document.getElementById("resposta").value.trim();
+      if (!pergunta || !resposta) { alert("Preencha pergunta e resposta"); return; }
+
+      // Salvar no Firebase
+      db.ref('perguntas/' + jogadorId).set({ nome: nomeJogador, pergunta, resposta });
+
+      document.getElementById("pergunta").value = "";
+      document.getElementById("resposta").value = "";
+      alert("Pergunta e resposta enviadas! Aguarde os outros jogadores.");
+
+      // Verificar se todos enviaram
+      db.ref('perguntas').once('value').then(snapshot=>{
+        const data = snapshot.val() || {};
+        totalJogadores = Object.keys(data).length;
+
+        perguntasNaoUsadas = Object.values(data);
+        if (totalJogadores >= 2) { iniciarRound(); } // Começar quando >=2 jogadores enviaram
+      });
+    }
+
+    function iniciarRound() {
+      if (perguntasNaoUsadas.length === 0) {
+        alert("🎉 Todos os rounds terminaram!");
+        return;
+      }
+
+      roundAtual++;
+      const indice = Math.floor(Math.random() * perguntasNaoUsadas.length);
+      const perguntaDaVez = perguntasNaoUsadas.splice(indice, 1)[0];
+
+      document.getElementById("etapa2").classList.add("oculto");
+      document.getElementById("etapa3").classList.remove("oculto");
+
+      const conteudo = document.getElementById("conteudoRound");
+      conteudo.innerHTML = `
+        <div class="resposta-card"><strong>Pergunta:</strong> ${perguntaDaVez.pergunta}</div>
+        <p>Digite sua resposta:</p>
+        <textarea id="respostaRound" placeholder="Digite sua resposta"></textarea><br>
+        <button onclick="enviarRespostaRound('${jogadorId}', '${perguntaDaVez.pergunta.replace(/'/g,"\\'")}')">Enviar</button>
+      `;
+    }
+
+    function enviarRespostaRound(jogId, textoPergunta) {
+      const resposta = document.getElementById("respostaRound").value.trim();
+      if (!resposta) { alert("Digite sua resposta"); return; }
+
+      db.ref('rounds/round' + roundAtual + '/' + jogadorId).set({ nome: nomeJogador, resposta });
+
+      alert("Resposta enviada! Aguarde os outros jogadores.");
+
+      // Observar respostas em tempo real
+      db.ref('rounds/round' + roundAtual).on('value', snapshot=>{
+        const respostas = snapshot.val() || {};
+        if (Object.keys(respostas).length === Object.keys(perguntasNaoUsadas).length + 1) { 
+          mostrarVotacao(textoPergunta, respostas);
+        }
+      });
+    }
+
+    function mostrarVotacao(textoPergunta, respostas) {
+      document.getElementById("etapa3").classList.add("oculto");
+      document.getElementById("etapa4").classList.remove("oculto");
+
+      const container = document.getElementById("botoesVotacao");
+      container.innerHTML = `<h3>Round ${roundAtual} - ${textoPergunta}</h3>`;
+
+      for (const j in respostas) {
+        const div = document.createElement("div");
+        div.classList.add("resposta-card");
+        div.textContent = respostas[j].resposta;
+        container.appendChild(div);
+      }
+
+      // Botões de votação
+      let votos = {};
+      const botoes = document.createElement("div");
+      for (const j in respostas) {
+        votos[j] = 0;
+        const btn = document.createElement("button");
+        btn.textContent = `Votar em ${respostas[j].nome}`;
+        btn.onclick = () => {
+          votos[j]++;
+          alert(`Você votou em ${respostas[j].nome}`);
+        };
+        botoes.appendChild(btn);
+      }
+      container.appendChild(botoes);
+
+      const encerrar = document.createElement("button");
+      encerrar.textContent = "Encerrar votação";
+      encerrar.onclick = () => {
+        const maiorVoto = Math.max(...Object.values(votos));
+        const impostores = Object.keys(votos).filter(k=>votos[k]===maiorVoto);
+        document.getElementById("etapa4").classList.add("oculto");
+        document.getElementById("etapa5").classList.remove("oculto");
+        const resultadoDiv = document.getElementById("resultado");
+        if (maiorVoto === 0) resultadoDiv.textContent = "Ninguém votou!";
+        else if (impostores.length === 1) resultadoDiv.textContent = `🕵️‍♂️ O impostor é ${respostas[impostores[0]].nome}!`;
+        else resultadoDiv.textContent = `Empate entre: ${impostores.map(i=>respostas[i].nome).join(", ")}`;
+      };
+      container.appendChild(encerrar);
+    }
+
+    function proximoRound() {
+      document.getElementById("etapa5").classList.add("oculto");
+      iniciarRound();
+    }
+
+  </script>
+</body>
+</html>
