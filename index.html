@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8">
+  <title>Quem é o Impostor?</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      background-color: #0d1117;
+      color: #fff;
+    }
+    h1 { color: #ff4757; }
+    input, textarea {
+      padding: 10px;
+      margin: 5px;
+      border-radius: 5px;
+      border: none;
+      width: 80%;
+      max-width: 400px;
+      font-size: 16px;
+    }
+    button {
+      padding: 10px 20px;
+      margin: 10px;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      cursor: pointer;
+      background-color: #3498db;
+      color: white;
+      transition: transform 0.2s;
+    }
+    button:hover { transform: scale(1.05); }
+    .oculto { display: none; }
+    .resposta-card {
+      background-color: #1e2329;
+      padding: 10px;
+      margin: 10px auto;
+      width: 80%;
+      border-radius: 10px;
+    }
+    .resultado {
+      font-size: 20px;
+      font-weight: bold;
+      margin-top: 20px;
+      color: #00ffcc;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Quem é o Impostor?</h1>
+
+  <!-- Etapa 1: Entrada de jogadores -->
+  <div id="etapa1">
+    <p>Quantos jogadores vão participar?</p>
+    <input type="number" id="numJogadores" min="2" max="10" placeholder="Ex: 4">
+    <br>
+    <button onclick="iniciarJogo()">Começar</button>
+  </div>
+
+  <!-- Etapa 2: Pergunta e resposta dos jogadores -->
+  <div id="etapa2" class="oculto">
+    <h2 id="tituloJogador"></h2>
+    <input type="text" id="pergunta" placeholder="Digite sua pergunta">
+    <br>
+    <textarea id="resposta" placeholder="Digite sua resposta"></textarea>
+    <br>
+    <button onclick="salvarPergunta()">Salvar e passar para o próximo</button>
+  </div>
+
+  <!-- Etapa 3: Round -->
+  <div id="etapa3" class="oculto">
+    <h2 id="roundTitulo">Round</h2>
+    <div id="conteudoRound"></div>
+  </div>
+
+  <!-- Etapa 4: Votação -->
+  <div id="etapa4" class="oculto">
+    <h2>Quem é o impostor?</h2>
+    <div id="botoesVotacao"></div>
+  </div>
+
+  <!-- Etapa 5: Resultado -->
+  <div id="etapa5" class="oculto">
+    <div id="resultado" class="resultado"></div>
+    <button onclick="novoRound()">Próximo Round</button>
+  </div>
+
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
+
+  <script>
+    // Config Firebase
+    const firebaseConfig = {
+      databaseURL: "https://joguinho-ad21e-default-rtdb.firebaseio.com"
+    };
+    const app = firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    let totalJogadores = 0;
+    let jogadorAtual = 1;
+    let perguntas = [];
+    let perguntasNaoUsadas = [];
+    let votos = {};
+    let roundAtual = 0;
+    let respostasRound = [];
+    const coresDisponiveis = ["#3498db","#e74c3c","#2ecc71","#f1c40f","#9b59b6","#1abc9c","#e67e22","#95a5a6"];
+    const coresJogadores = {};
+
+    function iniciarJogo() {
+      const num = parseInt(document.getElementById("numJogadores").value);
+      if (!num || num < 2) {
+        alert("Digite um número válido (mínimo 2 jogadores).");
+        return;
+      }
+      totalJogadores = num;
+      jogadorAtual = 1;
+      perguntas = [];
+      perguntasNaoUsadas = [];
+      votos = {};
+      roundAtual = 0;
+
+      // Atribuir cores
+      for (let i = 1; i <= totalJogadores; i++) {
+        coresJogadores[i] = coresDisponiveis[(i-1)%coresDisponiveis.length];
+      }
+
+      document.getElementById("etapa1").classList.add("oculto");
+      document.getElementById("etapa2").classList.remove("oculto");
+      document.getElementById("tituloJogador").textContent =
+        `Jogador ${jogadorAtual}, digite sua pergunta e resposta:`;
+    }
+
+    function salvarPergunta() {
+      const pergunta = document.getElementById("pergunta").value.trim();
+      const resposta = document.getElementById("resposta").value.trim();
+      if (!pergunta || !resposta) {
+        alert("Preencha a pergunta e a resposta!");
+        return;
+      }
+      perguntas.push({ jogador: jogadorAtual, pergunta, resposta });
+      document.getElementById("pergunta").value = "";
+      document.getElementById("resposta").value = "";
+
+      if (jogadorAtual < totalJogadores) {
+        jogadorAtual++;
+        document.getElementById("tituloJogador").textContent =
+          `Jogador ${jogadorAtual}, digite sua pergunta e resposta:`;
+      } else {
+        perguntasNaoUsadas = [...perguntas];
+        iniciarRound();
+      }
+    }
+
+function iniciarRound() {
+  if (perguntasNaoUsadas.length === 0) {
+    alert("🎉 Todos os rounds terminaram!");
+    return novoJogo();
+  }
+
+  roundAtual++;
+  const indice = Math.floor(Math.random() * perguntasNaoUsadas.length);
+  const perguntaDaVez = perguntasNaoUsadas.splice(indice, 1)[0];
+
+  const conteudo = document.getElementById("conteudoRound");
+  conteudo.innerHTML = `
+    <div class="resposta-card"><strong>Pergunta:</strong> ${perguntaDaVez.pergunta}</div>
+    <p>Jogadores, respondam à pergunta abaixo:</p>
+    <textarea id="respostaRound" placeholder="Digite sua resposta"></textarea><br>
+    <button onclick="salvarRespostaRound(${perguntaDaVez.jogador})">Enviar resposta</button>
+  `;
+  respostasRound = [];
+  atualizarContadorRespostas();
+
+  // Mostrar etapa3 **antes** de esconder etapa2
+  document.getElementById("etapa2").classList.add("oculto");
+  document.getElementById("etapa5").classList.add("oculto");
+  document.getElementById("etapa3").classList.remove("oculto");
+}
+
+
+    function atualizarContadorRespostas() {
+      document.getElementById("roundTitulo").textContent =
+        `Round ${roundAtual} - ${respostasRound.length}/${totalJogadores} respostas enviadas`;
+    }
+
+    function mostrarRespostasRound() {
+      document.getElementById("etapa3").classList.add("oculto");
+      document.getElementById("etapa4").classList.remove("oculto");
+
+      const container = document.getElementById("botoesVotacao");
+      container.innerHTML = `<h3>Round ${roundAtual} - Quem é o impostor?</h3>`;
+
+      const embaralhadas = respostasRound
+        .map(r => ({ r, sort: Math.random() }))
+        .sort((a,b)=>a.sort-b.sort)
+        .map(a=>a.r);
+
+      embaralhadas.forEach(item => {
+        const div = document.createElement("div");
+        div.classList.add("resposta-card");
+        div.style.backgroundColor = coresJogadores[item.jogador];
+        div.textContent = item.resposta;
+        container.appendChild(div);
+      });
+
+      votos = {};
+      const botoes = document.createElement("div");
+      for (let i = 1; i <= totalJogadores; i++) {
+        votos[i] = 0;
+        const btn = document.createElement("button");
+        btn.textContent = `Votar no Jogador ${i}`;
+        btn.onclick = () => votar(i);
+        botoes.appendChild(btn);
+      }
+      container.appendChild(botoes);
+
+      const encerrar = document.createElement("button");
+      encerrar.textContent = "Encerrar votação";
+      encerrar.onclick = mostrarResultado;
+      container.appendChild(encerrar);
+    }
+
+    function votar(jogador) {
+      votos[jogador]++;
+      alert(`Você votou no Jogador ${jogador}!`);
+    }
+
+    function mostrarResultado() {
+      const maiorVoto = Math.max(...Object.values(votos));
+      const impostores = Object.keys(votos).filter(j => votos[j] === maiorVoto);
+      const resultadoDiv = document.getElementById("resultado");
+
+      document.getElementById("etapa4").classList.add("oculto");
+      document.getElementById("etapa5").classList.remove("oculto");
+
+      if (maiorVoto === 0) resultadoDiv.textContent = "Ninguém votou!";
+      else if (impostores.length === 1)
+        resultadoDiv.textContent = `🕵️‍♂️ O impostor é o Jogador ${impostores[0]}! (${maiorVoto} voto${maiorVoto>1?"s":""})`;
+      else
+        resultadoDiv.textContent = `Empate entre: Jogadores ${impostores.join(", ")}`;
+    }
+
+    function novoRound() {
+      document.getElementById("etapa5").classList.add("oculto");
+      iniciarRound();
+    }
+
+    function novoJogo() {
+      document.getElementById("etapa1").classList.remove("oculto");
+      document.getElementById("etapa2").classList.add("oculto");
+      document.getElementById("etapa3").classList.add("oculto");
+      document.getElementById("etapa4").classList.add("oculto");
+      document.getElementById("etapa5").classList.add("oculto");
+      document.getElementById("numJogadores").value = "";
+    }
+  </script>
+
+</body>
+</html>
